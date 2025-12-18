@@ -1,9 +1,46 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:nfc_manager/nfc_manager.dart';
-import 'dart:typed_data';
+import 'package:nfc_manager_ndef/nfc_manager_ndef.dart';
+import 'package:ndef_record/ndef_record.dart';
 
 void main() {
   runApp(const NFCTesterApp());
+}
+
+// Helper function to create text NDEF record
+NdefRecord createTextRecord(String text, {String languageCode = 'en'}) {
+  final languageCodeBytes = Uint8List.fromList(languageCode.codeUnits);
+  final textBytes = Uint8List.fromList(text.codeUnits);
+
+  final payload = Uint8List(1 + languageCodeBytes.length + textBytes.length);
+  payload[0] = languageCodeBytes.length;
+  payload.setRange(1, 1 + languageCodeBytes.length, languageCodeBytes);
+  payload.setRange(1 + languageCodeBytes.length, payload.length, textBytes);
+
+  return NdefRecord(
+    typeNameFormat: TypeNameFormat.wellKnown,
+    type: Uint8List.fromList([0x54]), // 'T' for text
+    identifier: Uint8List(0),
+    payload: payload,
+  );
+}
+
+// Helper function to decode text from NDEF record
+String? decodeTextRecord(NdefRecord record) {
+  if (record.typeNameFormat != TypeNameFormat.wellKnown) return null;
+  if (record.type.length != 1 || record.type[0] != 0x54) {
+    return null; // Not a text record
+  }
+
+  final payload = record.payload;
+  if (payload.isEmpty) return null;
+
+  final languageCodeLength = payload[0] & 0x3f;
+  if (payload.length < 1 + languageCodeLength) return null;
+
+  return String.fromCharCodes(payload.skip(1 + languageCodeLength));
 }
 
 class NFCTesterApp extends StatelessWidget {
@@ -27,7 +64,7 @@ class NFCHomePage extends StatefulWidget {
 }
 
 class _NFCHomePageState extends State<NFCHomePage> {
-  bool? _isNfcAvailable;
+  NfcAvailability? _nfcAvailability;
   String _statusMessage = 'NFC állapot ellenőrzése...';
 
   @override
@@ -37,14 +74,18 @@ class _NFCHomePageState extends State<NFCHomePage> {
   }
 
   Future<void> _checkNfcAvailability() async {
-    bool isAvailable = await NfcManager.instance.isAvailable();
+    final availability = await NfcManager.instance.checkAvailability();
     setState(() {
-      _isNfcAvailable = isAvailable;
-      _statusMessage = isAvailable
-          ? 'NFC elérhető és működik ✓'
-          : 'NFC nem elérhető vagy ki van kapcsolva ✗';
+      _nfcAvailability = availability;
+      _statusMessage = availability == NfcAvailability.unsupported
+          ? 'NFC nem támogatott ezen az eszközön ✗'
+          : availability == NfcAvailability.disabled
+          ? 'NFC ki van kapcsolva - kapcsold be a beállításokban ✗'
+          : 'NFC elérhető és működik ✓';
     });
   }
+
+  bool get _isNfcReady => _nfcAvailability == NfcAvailability.enabled;
 
   @override
   Widget build(BuildContext context) {
@@ -52,19 +93,16 @@ class _NFCHomePageState extends State<NFCHomePage> {
       appBar: AppBar(title: const Text('NFC Tesztelő'), centerTitle: true),
       body: Column(
         children: [
-          // Állapot információ
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(20),
-            color: _isNfcAvailable == true
-                ? Colors.green.shade100
-                : Colors.red.shade100,
+            color: _isNfcReady ? Colors.green.shade100 : Colors.red.shade100,
             child: Column(
               children: [
                 Icon(
-                  _isNfcAvailable == true ? Icons.check_circle : Icons.error,
+                  _isNfcReady ? Icons.check_circle : Icons.error,
                   size: 48,
-                  color: _isNfcAvailable == true ? Colors.green : Colors.red,
+                  color: _isNfcReady ? Colors.green : Colors.red,
                 ),
                 const SizedBox(height: 10),
                 Text(
@@ -84,10 +122,8 @@ class _NFCHomePageState extends State<NFCHomePage> {
               ],
             ),
           ),
-
-          // Módok választása
           Expanded(
-            child: _isNfcAvailable == true
+            child: _isNfcReady
                 ? ListView(
                     padding: const EdgeInsets.all(16),
                     children: [
@@ -99,72 +135,58 @@ class _NFCHomePageState extends State<NFCHomePage> {
                         ),
                       ),
                       const SizedBox(height: 20),
-
-                      // Olvasó mód
                       _ModeCard(
                         title: 'Olvasó Mód',
                         subtitle: 'NFC címkék és adatok fogadása',
                         icon: Icons.nfc,
                         color: Colors.blue,
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => const NFCReaderPage(),
-                            ),
-                          );
-                        },
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const NFCReaderPage(),
+                          ),
+                        ),
                       ),
-
                       const SizedBox(height: 16),
-
-                      // Író mód
                       _ModeCard(
                         title: 'Író Mód',
                         subtitle: 'Adat írása NFC címkére',
                         icon: Icons.edit,
                         color: Colors.green,
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => const NFCWriterPage(),
-                            ),
-                          );
-                        },
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const NFCWriterPage(),
+                          ),
+                        ),
                       ),
-
                       const SizedBox(height: 16),
-
-                      // Emulátor mód
                       _ModeCard(
                         title: 'Peer-to-Peer Mód',
                         subtitle: 'Két telefon közötti adatcsere',
                         icon: Icons.swap_horiz,
                         color: Colors.orange,
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => const NFCP2PPage(),
-                            ),
-                          );
-                        },
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const NFCP2PPage(),
+                          ),
+                        ),
                       ),
                     ],
                   )
-                : Center(
+                : const Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Icon(Icons.warning, size: 64, color: Colors.orange),
-                        const SizedBox(height: 20),
-                        const Text(
+                        SizedBox(height: 20),
+                        Text(
                           'Az NFC nem használható',
                           style: TextStyle(fontSize: 20),
                         ),
-                        const SizedBox(height: 10),
-                        const Text(
+                        SizedBox(height: 10),
+                        Text(
                           'Ellenőrizd, hogy:\n• Az eszköz támogatja az NFC-t\n• Az NFC be van kapcsolva a beállításokban',
                           textAlign: TextAlign.center,
                         ),
@@ -207,7 +229,7 @@ class _ModeCard extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: color.withOpacity(0.1),
+                  color: color.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Icon(icon, size: 40, color: color),
@@ -241,7 +263,6 @@ class _ModeCard extends StatelessWidget {
   }
 }
 
-// OLVASÓ MÓD
 class NFCReaderPage extends StatefulWidget {
   const NFCReaderPage({super.key});
 
@@ -251,7 +272,7 @@ class NFCReaderPage extends StatefulWidget {
 
 class _NFCReaderPageState extends State<NFCReaderPage> {
   String _status = 'Várakozás...';
-  List<String> _dataLog = [];
+  final List<String> _dataLog = [];
   bool _isReading = false;
 
   @override
@@ -265,69 +286,52 @@ class _NFCReaderPageState extends State<NFCReaderPage> {
       _isReading = true;
       _status =
           'Olvasásra kész. Érintsd egy NFC címkéhez vagy másik telefonhoz...';
-      _dataLog.add(
-        '[${DateTime.now().toString().substring(11, 19)}] Olvasó mód elindítva',
-      );
+      _dataLog.add('[${_timestamp()}] Olvasó mód elindítva');
     });
 
     NfcManager.instance.startSession(
+      pollingOptions: {NfcPollingOption.iso14443, NfcPollingOption.iso15693},
       onDiscovered: (NfcTag tag) async {
         setState(() {
           _status = 'NFC címke detektálva!';
-          _dataLog.add(
-            '[${DateTime.now().toString().substring(11, 19)}] NFC címke észlelve',
-          );
+          _dataLog.add('[${_timestamp()}] NFC címke észlelve');
         });
 
-        // Tag információk kiolvasása
-        final tagData = tag.data;
-        setState(() {
-          _dataLog.add('Tag típus: ${tagData.keys.join(", ")}');
-        });
+        final ndef = Ndef.from(tag);
+        if (ndef != null) {
+          setState(() {
+            _dataLog.add('Típus: NDEF címke');
+            _dataLog.add('Írható: ${ndef.isWritable ? "Igen" : "Nem"}');
+            _dataLog.add('Kapacitás: ${ndef.maxSize} bájt');
+          });
 
-        // NDEF adatok olvasása
-        if (tagData.containsKey('ndef')) {
-          final ndefData = tagData['ndef'];
-          if (ndefData != null && ndefData is Map) {
-            final cachedMessage = ndefData['cachedMessage'];
-            if (cachedMessage != null && cachedMessage is Map) {
-              final records = cachedMessage['records'];
-              if (records != null && records is List) {
-                for (var record in records) {
-                  if (record is Map && record.containsKey('payload')) {
-                    final payload = record['payload'] as Uint8List;
-                    final text = String.fromCharCodes(
-                      payload.skip(3),
-                    ); // Skip nyelv kód
-                    setState(() {
-                      _dataLog.add('Tartalom: $text');
-                      _status = 'Sikeresen beolvasva: $text';
-                    });
-                  }
-                }
+          final message = ndef.cachedMessage;
+          if (message != null) {
+            for (int i = 0; i < message.records.length; i++) {
+              final record = message.records[i];
+              setState(() {
+                _dataLog.add('--- Rekord ${i + 1} ---');
+                _dataLog.add('TNF: ${record.typeNameFormat.toString()}');
+              });
+
+              final text = decodeTextRecord(record);
+              if (text != null) {
+                setState(() {
+                  _dataLog.add('Szöveg: $text');
+                  _status = 'Beolvasva: $text';
+                });
               }
             }
           }
         }
 
-        // ID kiolvasása
-        if (tagData.containsKey('nfca')) {
-          final nfcA = tagData['nfca'];
-          if (nfcA != null && nfcA is Map && nfcA.containsKey('identifier')) {
-            final id = nfcA['identifier'] as Uint8List;
-            final idHex = id
-                .map((b) => b.toRadixString(16).padLeft(2, '0'))
-                .join(':');
-            setState(() {
-              _dataLog.add('Tag ID: $idHex');
-            });
-          }
-        }
+        // Tag detected - no need to access protected data
+        setState(() {
+          _dataLog.add('Tag észlelve és feldolgozva');
+        });
 
         setState(() {
-          _dataLog.add(
-            '[${DateTime.now().toString().substring(11, 19)}] Olvasás befejezve\n',
-          );
+          _dataLog.add('[${_timestamp()}] Olvasás befejezve\n');
         });
       },
     );
@@ -338,11 +342,11 @@ class _NFCReaderPageState extends State<NFCReaderPage> {
     setState(() {
       _isReading = false;
       _status = 'Olvasás leállítva';
-      _dataLog.add(
-        '[${DateTime.now().toString().substring(11, 19)}] Olvasó mód leállítva\n',
-      );
+      _dataLog.add('[${_timestamp()}] Olvasó mód leállítva\n');
     });
   }
+
+  String _timestamp() => DateTime.now().toString().substring(11, 19);
 
   @override
   void dispose() {
@@ -397,11 +401,7 @@ class _NFCReaderPageState extends State<NFCReaderPage> {
                 ),
                 const Spacer(),
                 TextButton.icon(
-                  onPressed: () {
-                    setState(() {
-                      _dataLog.clear();
-                    });
-                  },
+                  onPressed: () => setState(() => _dataLog.clear()),
                   icon: const Icon(Icons.clear_all),
                   label: const Text('Törlés'),
                 ),
@@ -441,7 +441,6 @@ class _NFCReaderPageState extends State<NFCReaderPage> {
   }
 }
 
-// ÍRÓ MÓD
 class NFCWriterPage extends StatefulWidget {
   const NFCWriterPage({super.key});
 
@@ -456,9 +455,7 @@ class _NFCWriterPageState extends State<NFCWriterPage> {
 
   void _writeToTag() async {
     if (_textController.text.isEmpty) {
-      setState(() {
-        _status = 'Kérlek írj be egy üzenetet!';
-      });
+      setState(() => _status = 'Kérlek írj be egy üzenetet!');
       return;
     }
 
@@ -469,38 +466,46 @@ class _NFCWriterPageState extends State<NFCWriterPage> {
 
     try {
       await NfcManager.instance.startSession(
+        pollingOptions: {NfcPollingOption.iso14443, NfcPollingOption.iso15693},
         onDiscovered: (NfcTag tag) async {
           try {
-            var ndef = Ndef.from(tag);
-            if (ndef == null || !ndef.isWritable) {
+            final ndef = Ndef.from(tag);
+            if (ndef == null) {
+              setState(() {
+                _status = 'Ez nem NDEF címke!';
+                _isWriting = false;
+              });
+              await NfcManager.instance.stopSession();
+              return;
+            }
+
+            if (!ndef.isWritable) {
               setState(() {
                 _status = 'Ez a címke nem írható!';
                 _isWriting = false;
               });
-              NfcManager.instance.stopSession(errorMessage: 'Nem írható címke');
+              await NfcManager.instance.stopSession();
               return;
             }
 
-            // NDEF üzenet létrehozása
-            final message = NdefMessage([
-              NdefRecord.createText(_textController.text),
-            ]);
+            final ndefMessage = NdefMessage(
+              records: [createTextRecord(_textController.text)],
+            );
 
-            // Írás
-            await ndef.write(message);
+            await ndef.write(message: ndefMessage);
 
             setState(() {
               _status = 'Sikeresen írva: "${_textController.text}"';
               _isWriting = false;
             });
 
-            NfcManager.instance.stopSession();
+            await NfcManager.instance.stopSession();
           } catch (e) {
             setState(() {
               _status = 'Hiba írás közben: $e';
               _isWriting = false;
             });
-            NfcManager.instance.stopSession(errorMessage: 'Írási hiba');
+            await NfcManager.instance.stopSession();
           }
         },
       );
@@ -610,7 +615,6 @@ class _NFCWriterPageState extends State<NFCWriterPage> {
   }
 }
 
-// PEER-TO-PEER MÓD
 class NFCP2PPage extends StatefulWidget {
   const NFCP2PPage({super.key});
 
@@ -623,78 +627,69 @@ class _NFCP2PPageState extends State<NFCP2PPage> {
     text: 'Teszt üzenet ${DateTime.now().millisecondsSinceEpoch}',
   );
   String _status = 'Válassz egy módot';
-  List<String> _log = [];
+  final List<String> _log = [];
   bool _isActive = false;
 
   void _startSender() async {
     if (_messageController.text.isEmpty) {
-      setState(() {
-        _status = 'Adj meg egy üzenetet!';
-      });
+      setState(() => _status = 'Adj meg egy üzenetet!');
       return;
     }
 
     setState(() {
       _isActive = true;
       _status = 'Küldő mód: Érintsd a másik telefonhoz...';
-      _log.add(
-        '[${DateTime.now().toString().substring(11, 19)}] Küldő mód aktiválva',
-      );
+      _log.add('[${_timestamp()}] Küldő mód aktiválva');
     });
 
     try {
       await NfcManager.instance.startSession(
+        pollingOptions: {NfcPollingOption.iso14443, NfcPollingOption.iso15693},
         onDiscovered: (NfcTag tag) async {
           try {
             setState(() {
-              _log.add(
-                '[${DateTime.now().toString().substring(11, 19)}] Eszköz detektálva',
-              );
+              _log.add('[${_timestamp()}] Eszköz detektálva');
             });
 
-            var ndef = Ndef.from(tag);
+            final ndef = Ndef.from(tag);
             if (ndef != null && ndef.isWritable) {
-              final message = NdefMessage([
-                NdefRecord.createText(_messageController.text),
-              ]);
+              final ndefMessage = NdefMessage(
+                records: [createTextRecord(_messageController.text)],
+              );
 
-              await ndef.write(message);
+              await ndef.write(message: ndefMessage);
 
               setState(() {
                 _status = 'Üzenet sikeresen elküldve!';
                 _log.add(
-                  '[${DateTime.now().toString().substring(11, 19)}] Üzenet elküldve: "${_messageController.text}"',
+                  '[${_timestamp()}] Üzenet elküldve: "${_messageController.text}"',
                 );
                 _isActive = false;
               });
 
-              NfcManager.instance.stopSession();
+              await NfcManager.instance.stopSession();
             } else {
               setState(() {
                 _status = 'Nem sikerült írni az eszközre';
-                _log.add(
-                  '[${DateTime.now().toString().substring(11, 19)}] Írási hiba - eszköz nem írható',
-                );
+                _log.add('[${_timestamp()}] Írási hiba - eszköz nem írható');
                 _isActive = false;
               });
-              NfcManager.instance.stopSession(errorMessage: 'Nem írható');
+              await NfcManager.instance.stopSession();
             }
           } catch (e) {
             setState(() {
               _status = 'Hiba: $e';
-              _log.add(
-                '[${DateTime.now().toString().substring(11, 19)}] Hiba: $e',
-              );
+              _log.add('[${_timestamp()}] Hiba: $e');
               _isActive = false;
             });
-            NfcManager.instance.stopSession(errorMessage: 'Hiba történt');
+            await NfcManager.instance.stopSession();
           }
         },
       );
     } catch (e) {
       setState(() {
         _status = 'Hiba: $e';
-        _log.add('[${DateTime.now().toString().substring(11, 19)}] Hiba: $e');
+        _log.add('[${_timestamp()}] Hiba: $e');
         _isActive = false;
       });
     }
@@ -704,56 +699,35 @@ class _NFCP2PPageState extends State<NFCP2PPage> {
     setState(() {
       _isActive = true;
       _status = 'Fogadó mód: Érintsd a másik telefonhoz...';
-      _log.add(
-        '[${DateTime.now().toString().substring(11, 19)}] Fogadó mód aktiválva',
-      );
+      _log.add('[${_timestamp()}] Fogadó mód aktiválva');
     });
 
     NfcManager.instance.startSession(
+      pollingOptions: {NfcPollingOption.iso14443, NfcPollingOption.iso15693},
       onDiscovered: (NfcTag tag) async {
         setState(() {
-          _log.add(
-            '[${DateTime.now().toString().substring(11, 19)}] Eszköz detektálva',
-          );
+          _log.add('[${_timestamp()}] Eszköz detektálva');
         });
 
-        final tagData = tag.data;
-
-        if (tagData.containsKey('ndef')) {
-          final ndefData = tagData['ndef'];
-          if (ndefData != null && ndefData is Map) {
-            final cachedMessage = ndefData['cachedMessage'];
-            if (cachedMessage != null && cachedMessage is Map) {
-              final records = cachedMessage['records'];
-              if (records != null && records is List) {
-                for (var record in records) {
-                  if (record is Map && record.containsKey('payload')) {
-                    final payload = record['payload'] as Uint8List;
-                    final text = String.fromCharCodes(payload.skip(3));
-                    setState(() {
-                      _status = 'Üzenet fogadva!';
-                      _log.add(
-                        '[${DateTime.now().toString().substring(11, 19)}] Fogadott üzenet: "$text"',
-                      );
-                    });
-                  }
-                }
-              }
+        final ndef = Ndef.from(tag);
+        if (ndef != null && ndef.cachedMessage != null) {
+          for (var record in ndef.cachedMessage!.records) {
+            final text = decodeTextRecord(record);
+            if (text != null) {
+              setState(() {
+                _status = 'Üzenet fogadva!';
+                _log.add('[${_timestamp()}] Fogadott üzenet: "$text"');
+              });
             }
           }
         } else {
           setState(() {
-            _log.add(
-              '[${DateTime.now().toString().substring(11, 19)}] Nincs NDEF adat',
-            );
+            _log.add('[${_timestamp()}] Nincs NDEF adat');
           });
         }
 
-        setState(() {
-          _isActive = false;
-        });
-
-        NfcManager.instance.stopSession();
+        setState(() => _isActive = false);
+        await NfcManager.instance.stopSession();
       },
     );
   }
@@ -763,11 +737,11 @@ class _NFCP2PPageState extends State<NFCP2PPage> {
     setState(() {
       _isActive = false;
       _status = 'Leállítva';
-      _log.add(
-        '[${DateTime.now().toString().substring(11, 19)}] Mód leállítva\n',
-      );
+      _log.add('[${_timestamp()}] Mód leállítva\n');
     });
   }
+
+  String _timestamp() => DateTime.now().toString().substring(11, 19);
 
   @override
   void dispose() {
@@ -877,11 +851,7 @@ class _NFCP2PPageState extends State<NFCP2PPage> {
                     ),
                     const Spacer(),
                     TextButton.icon(
-                      onPressed: () {
-                        setState(() {
-                          _log.clear();
-                        });
-                      },
+                      onPressed: () => setState(() => _log.clear()),
                       icon: const Icon(Icons.clear_all, size: 16),
                       label: const Text('Törlés'),
                     ),
