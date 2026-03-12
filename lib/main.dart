@@ -626,9 +626,20 @@ class _NFCP2PPageState extends State<NFCP2PPage> {
   final TextEditingController _messageController = TextEditingController(
     text: 'Teszt üzenet ${DateTime.now().millisecondsSinceEpoch}',
   );
-  String _status = 'Válassz egy módot';
+  String _status =
+      'FONTOS: Android Beam (P2P) már nem támogatott Android 10+ verziókon!';
   final List<String> _log = [];
   bool _isActive = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _log.add(
+      '⚠️ FIGYELEM: Az Android Beam már nem működik modern Android rendszereken!',
+    );
+    _log.add('💡 MEGOLDÁS: Használd az alábbi workaround-ot:');
+    _log.add('');
+  }
 
   void _startSender() async {
     if (_messageController.text.isEmpty) {
@@ -882,23 +893,79 @@ class _NFCP2PPageState extends State<NFCP2PPage> {
                   ),
                 ),
                 const SizedBox(height: 20),
-                const Card(
+                Card(
+                  color: Colors.orange.shade50,
                   child: Padding(
-                    padding: EdgeInsets.all(16),
+                    padding: const EdgeInsets.all(16),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.warning_amber,
+                              color: Colors.orange[700],
+                            ),
+                            const SizedBox(width: 8),
+                            const Text(
+                              'FONTOS INFORMÁCIÓ',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
                         Text(
-                          'Használat két telefonnal:',
+                          'Az Android Beam (P2P NFC) már NEM MŰKÖDIK az Android 10+ verziókon!',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.red[700],
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        const Text(
+                          'WORKAROUND két telefonnal:',
                           style: TextStyle(fontWeight: FontWeight.bold),
                         ),
-                        SizedBox(height: 8),
-                        Text('1. Első telefonon: Nyomd meg a "Küldés" gombot'),
-                        Text(
-                          '2. Második telefonon: Nyomd meg a "Fogadás" gombot',
+                        const SizedBox(height: 8),
+                        const Text('📱 1. TELEFON (KÜLDŐ):'),
+                        const Text('   • Nyisd meg az Író módot (Writer)'),
+                        const Text('   • Írj be egy üzenetet'),
+                        const Text(
+                          '   • Érintsd egy NFC CÍMKÉHEZ (nem telefonhoz!)',
                         ),
-                        Text('3. Érintsd össze a két telefont (hátlapjukat)'),
-                        Text('4. Várd meg az adatátvitelt'),
+                        const SizedBox(height: 8),
+                        const Text('📱 2. TELEFON (FOGADÓ):'),
+                        const Text('   • Nyisd meg az Olvasó módot (Reader)'),
+                        const Text('   • Érintsd ugyanahhoz a CÍMKÉHEZ'),
+                        const Text('   • Az üzenet beolvasásra kerül'),
+                        const SizedBox(height: 12),
+                        const Divider(),
+                        const SizedBox(height: 8),
+                        const Text(
+                          '💡 MEGOLDÁSOK címke nélkül:',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 8),
+                        const Text(
+                          '1️⃣ Vásárolj egy NTAG213 NFC címkét (200-500 Ft)',
+                        ),
+                        const Text(
+                          '2️⃣ Használj NFC kártyát (bankkártya, bérlet)',
+                        ),
+                        const Text(
+                          '3️⃣ NFC matrica/tag (ragasztható felületre)',
+                        ),
+                        const SizedBox(height: 8),
+                        const Text(
+                          '⚠️ Telefon-telefon NFC kommunikáció nem lehetséges modern Android rendszereken!',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
                       ],
                     ),
                   ),
